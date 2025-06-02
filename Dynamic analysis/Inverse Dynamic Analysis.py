@@ -76,6 +76,16 @@ for num in file_numbers:
         position_cols = [col for col in df.columns if any(p in col for p in ['RTOE_', 'RHEE_', 'RKNE_', 'RANK_', 'CoP_'])]
         for col in position_cols:
             df[col] = df[col] / 1000.0  # Convert mm to m
+        
+        # Invert time and data order for odd-numbered trials (17, 19)
+        if num % 2 == 1:  # Odd trials
+            print(f"Inverting time order for trial {num}")
+            # Reverse the DataFrame rows
+            df = df.iloc[::-1].reset_index(drop=True)
+            # Adjust the time column to maintain ascending order
+            time_diff = df['time'].diff().mean()  # Average time step
+            df['time'] = np.linspace(0, time_diff * (len(df) - 1), len(df))
+        
         dfs.append(df)
     else:
         print(f'File {filename} not found.')
@@ -285,7 +295,7 @@ mean_df['ankle_torque_x_norm'] = mean_df['ankle_torque_x'] / weight
 mean_df['knee_torque_x_norm'] = mean_df['knee_torque_x'] / weight
 mean_df['hip_torque_x_norm'] = mean_df['hip_torque_x'] / weight
 
-# Inicializar arrays para fuerzas articulares
+# Initialize arrays for joint reaction forces
 mean_df['ankle_reaction_fx'] = 0.0
 mean_df['ankle_reaction_fy'] = 0.0
 mean_df['ankle_reaction_fz'] = 0.0
@@ -310,7 +320,7 @@ for i in range(2, len(mean_df)):
         # Calculate time step and ensure it's valid
         dt = mean_df['time'].iloc[i] - mean_df['time'].iloc[i-1]
         if dt <= 0 or np.isnan(dt):
-            print(f"Invalid dt at index {i}: {dt}. Skipping frame.")
+            #print(f"Invalid dt at index {i}: {dt}. Skipping frame.")
             skipped_frames += 1
             continue
 
@@ -327,7 +337,6 @@ for i in range(2, len(mean_df)):
             (mean_df['RANK_Y'].iloc[i] - 2 * mean_df['RANK_Y'].iloc[i-1] + mean_df['RANK_Y'].iloc[i-2]) / dt**2,
             (mean_df['RANK_Z'].iloc[i] - 2 * mean_df['RANK_Z'].iloc[i-1] + mean_df['RANK_Z'].iloc[i-2]) / dt**2
         ])
-        # Clip accelerations to prevent numerical instability
         ankle_acc = np.clip(ankle_acc, -1e3, 1e3)
 
         foot_mass = segment_params['foot']['mass']
@@ -346,7 +355,7 @@ for i in range(2, len(mean_df)):
 
         # Compute ankle reaction force: R = GRF - W - m*a
         ankle_reaction_force = grf - foot_weight - foot_mass * ankle_acc
-        ankle_reaction_force = np.clip(ankle_reaction_force, -1e6, 1e6)  # Prevent inf
+        ankle_reaction_force = np.clip(ankle_reaction_force, -1e6, 1e6)
         mean_df.loc[i, ['ankle_reaction_fx', 'ankle_reaction_fy', 'ankle_reaction_fz']] = ankle_reaction_force
 
         # === Shank Segment ===
@@ -366,7 +375,7 @@ for i in range(2, len(mean_df)):
         # === Thigh Segment ===
         thigh_mass = segment_params['thigh']['mass']
         thigh_weight = np.array([0, 0, -thigh_mass * g])
-        hip_reaction_force = knee_reaction_force - thigh_weight  # Simplified, no pelvis acceleration
+        hip_reaction_force = knee_reaction_force - thigh_weight
         hip_reaction_force = np.clip(hip_reaction_force, -1e6, 1e6)
         mean_df.loc[i, ['hip_reaction_fx', 'hip_reaction_fy', 'hip_reaction_fz']] = hip_reaction_force
 
@@ -461,7 +470,7 @@ plt.legend()
 plt.grid()
 plt.show()
 
-# Graficar fuerzas articulares (componente vertical - Z)
+# Plot joint reaction forces (vertical component - Z)
 plt.figure(figsize=(12, 6))
 plt.plot(mean_df['time'], mean_df['ankle_reaction_fz'], label='Ankle Reaction Fz')
 plt.plot(mean_df['time'], mean_df['knee_reaction_fz'], label='Knee Reaction Fz')
@@ -473,7 +482,7 @@ plt.legend()
 plt.grid()
 plt.show()
 
-# Imprimir estadísticas
+# Print statistics
 print("\nJoint Reaction Force Statistics (Fz):")
 for joint in ['ankle', 'knee', 'hip']:
     valid_data = mean_df[f'{joint}_reaction_fz'][mean_df[f'{joint}_reaction_fz'].notna()]
@@ -485,3 +494,14 @@ for joint in ['ankle', 'knee', 'hip']:
         print(f"{joint.capitalize()} Fz - Max: {max_fz:.2f} N, Min: {min_fz:.2f} N, Mean: {mean_fz:.2f} N, Std: {std_fz:.2f} N")
     else:
         print(f"{joint.capitalize()} Fz - No valid data (all NaN or zero)")
+
+# Additional debugging: Plot GRF (Fz) for each trial before averaging
+plt.figure(figsize=(12, 6))
+for i, df in enumerate(dfs):
+    plt.plot(df['time'], df['FP1_6965 - Force_Fz'] + df['FP2_6966 - Force_Fz'], label=f'Trial {file_numbers[i]}')
+plt.xlabel('Time (s)')
+plt.ylabel('Force Fz (N)')
+plt.title('GRF Fz per Trial Before Averaging')
+plt.legend()
+plt.grid()
+plt.show()
